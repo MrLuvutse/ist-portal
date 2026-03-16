@@ -9,6 +9,11 @@ use App\Models\Attendance;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\WelcomeStudentMail;
+use App\Mail\EnrollmentMail;
+use App\Mail\GradeAssignedMail;
+use App\Mail\AbsenceNoticeMail;
 
 class AdminController extends Controller
 {
@@ -46,12 +51,12 @@ class AdminController extends Controller
     public function storeStudent(Request $request)
     {
         $request->validate([
-            'name'             => 'required',
-            'email'            => 'required|email|unique:users',
-            'password'         => 'required|min:6',
-            'student_id'       => 'required|unique:students',
-            'program'          => 'required',
-            'enrollment_date'  => 'required|date',
+            'name'            => 'required',
+            'email'           => 'required|email|unique:users',
+            'password'        => 'required|min:6',
+            'student_id'      => 'required|unique:students',
+            'program'         => 'required',
+            'enrollment_date' => 'required|date',
         ]);
 
         $user = User::create([
@@ -70,7 +75,20 @@ class AdminController extends Controller
             'enrollment_date' => $request->enrollment_date,
         ]);
 
-        return redirect()->route('admin.students')->with('success', 'Student created successfully!');
+        // Send welcome email
+        try {
+            Mail::to($request->email)->send(new WelcomeStudentMail(
+                $request->name,
+                $request->student_id,
+                $request->email,
+                $request->password,
+                $request->program
+            ));
+        } catch (\Exception $e) {
+            // Email failed but student was still created
+        }
+
+        return redirect()->route('admin.students')->with('success', 'Student created and welcome email sent!');
     }
 
     public function editStudent($id)
@@ -137,11 +155,28 @@ class AdminController extends Controller
             'student_id' => 'required',
             'course_id'  => 'required',
         ]);
+
         Enrollment::firstOrCreate(
             ['student_id' => $request->student_id, 'course_id' => $request->course_id],
             ['status' => 'enrolled', 'enrolled_at' => now()]
         );
-        return redirect()->route('admin.enrollments')->with('success', 'Student enrolled!');
+
+        // Send enrollment email
+        try {
+            $student = Student::with('user')->find($request->student_id);
+            $course  = Course::find($request->course_id);
+            Mail::to($student->user->email)->send(new EnrollmentMail(
+                $student->user->name,
+                $course->name,
+                $course->code,
+                $course->instructor,
+                $course->schedule
+            ));
+        } catch (\Exception $e) {
+            // Email failed but enrollment was still created
+        }
+
+        return redirect()->route('admin.enrollments')->with('success', 'Student enrolled and notified!');
     }
 
     // Grades
@@ -161,16 +196,40 @@ class AdminController extends Controller
             'midterm'    => 'required|numeric|min:0|max:100',
             'final'      => 'required|numeric|min:0|max:100',
         ]);
+
         $total  = ($request->midterm + $request->final) / 2;
         $letter = $this->getLetterGrade($total);
         $status = $total >= 50 ? 'pass' : 'fail';
 
         Grade::updateOrCreate(
             ['student_id' => $request->student_id, 'course_id' => $request->course_id],
-            ['midterm' => $request->midterm, 'final' => $request->final,
-             'total' => $total, 'letter_grade' => $letter, 'status' => $status]
+            [
+                'midterm'      => $request->midterm,
+                'final'        => $request->final,
+                'total'        => round($total, 2),
+                'letter_grade' => $letter,
+                'status'       => $status
+            ]
         );
-        return redirect()->route('admin.grades')->with('success', 'Grade saved!');
+
+        // Send grade email
+        try {
+            $student = Student::with('user')->find($request->student_id);
+            $course  = Course::find($request->course_id);
+            Mail::to($student->user->email)->send(new GradeAssignedMail(
+                $student->user->name,
+                $course->name,
+                $request->midterm,
+                $request->final,
+                round($total, 2),
+                $letter,
+                $status
+            ));
+        } catch (\Exception $e) {
+            // Email failed but grade was still saved
+        }
+
+        return redirect()->route('admin.grades')->with('success', 'Grade saved and student notified!');
     }
 
     private function getLetterGrade($total)
@@ -202,12 +261,35 @@ class AdminController extends Controller
             'date'       => 'required|date',
             'status'     => 'required',
         ]);
+
         Attendance::updateOrCreate(
-            ['student_id' => $request->student_id,
-             'course_id'  => $request->course_id,
-             'date'       => $request->date],
-            ['status' => $request->status, 'notes' => $request->notes]
+            [
+                'student_id' => $request->student_id,
+                'course_id'  => $request->course_id,
+                'date'       => $request->date
+            ],
+            [
+                'status' => $request->status,
+                'notes'  => $request->notes
+            ]
         );
+
+        // Send absence email only if marked absent
+        if ($request->status === 'absent') {
+            try {
+                $student = Student::with('user')->find($request->student_id);
+                $course  = Course::find($request->course_id);
+                Mail::to($student->user->email)->send(new AbsenceNoticeMail(
+                    $student->user->name,
+                    $course->name,
+                    $request->date,
+                    $request->notes
+                ));
+            } catch (\Exception $e) {
+                // Email failed but attendance was still marked
+            }
+        }
+
         return redirect()->route('admin.attendance')->with('success', 'Attendance marked!');
     }
 }
