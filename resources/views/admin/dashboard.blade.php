@@ -4,9 +4,12 @@
 
 @section('sidebar')
     <div class="nav-label">MAIN MENU</div>
-    <a href="{{ route('admin.dashboard') }}" class="nav-link active">
-        <i class="bi bi-speedometer2"></i> Dashboard
-    </a>
+    <a href="{{ route('admin.dashboard') }}" class="nav-link active"><i class="bi bi-speedometer2"></i> Dashboard</a>
+    <a href="{{ route('admin.students') }}" class="nav-link"><i class="bi bi-people"></i> Students</a>
+    <a href="{{ route('admin.courses') }}" class="nav-link"><i class="bi bi-book"></i> Courses</a>
+    <a href="{{ route('admin.enrollments') }}" class="nav-link"><i class="bi bi-journal-check"></i> Enrollments</a>
+    <a href="{{ route('admin.grades') }}" class="nav-link"><i class="bi bi-star"></i> Grades</a>
+    <a href="{{ route('admin.attendance') }}" class="nav-link"><i class="bi bi-calendar-check"></i> Attendance</a>
 @endsection
 
 @section('content')
